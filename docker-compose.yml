@@ -1,0 +1,153 @@
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - event-pipeline
+
+  # Kafka broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    networks:
+      - event-pipeline
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # MS SQL Server
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    hostname: mssql
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: YourStrong@Passw0rd
+      MSSQL_PID: Developer
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - event-pipeline
+    # Healthcheck removed to avoid dependency on sqlcmd inside this image.
+
+  # Redis for DLQ
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - event-pipeline
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Initialize database
+  mssql-init:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: mssql-init
+    depends_on:
+      mssql:
+        condition: service_started
+    volumes:
+      - ./schema.sql:/schema.sql
+    command: ["sh","-c","echo 'Waiting for SQL Server to accept connections...' && for i in $(seq 1 40); do /opt/mssql-tools/bin/sqlcmd -S mssql -U sa -P 'YourStrong@Passw0rd' -Q 'SELECT 1' >/dev/null 2>&1 && break || sleep 3; done && echo 'Initializing database...' && /opt/mssql-tools/bin/sqlcmd -S mssql -U sa -P 'YourStrong@Passw0rd' -d master -Q \"IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'eventdb') CREATE DATABASE eventdb\" && /opt/mssql-tools/bin/sqlcmd -S mssql -U sa -P 'YourStrong@Passw0rd' -d eventdb -i /schema.sql"]
+    networks:
+      - event-pipeline
+
+  # Consumer/API Service
+  # Run locally with: go run cmd/consumer/main.go
+  # consumer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.consumer
+  #   container_name: event-consumer
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #     mssql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     mssql-init:
+  #       condition: service_completed_successfully
+  #   ports:
+  #     - "8080:8080"
+  #     - "9090:9090"
+  #   environment:
+  #     KAFKA_BROKERS: kafka:29092
+  #     KAFKA_TOPIC: events
+  #     KAFKA_CONSUMER_GROUP: event-consumer-group
+  #     MSSQL_SERVER: mssql
+  #     MSSQL_PORT: 1433
+  #     MSSQL_USER: sa
+  #     MSSQL_PASSWORD: YourStrong@Passw0rd
+  #     MSSQL_DATABASE: eventdb
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     REDIS_PASSWORD: ""
+  #     REDIS_DB: 0
+  #     REDIS_DLQ_KEY: dlq:events
+  #     API_PORT: 8080
+  #     METRICS_PORT: 9090
+  #   networks:
+  #     - event-pipeline
+  #   restart: unless-stopped
+
+  # Producer Service (interactive)
+  # Uncomment to run producer
+  # producer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.producer
+  #   container_name: event-producer
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #   environment:
+  #     KAFKA_BROKERS: kafka:29092
+  #     KAFKA_TOPIC: events
+  #   networks:
+  #     - event-pipeline
+  #   stdin_open: true
+  #   tty: true
+
+volumes:
+  mssql-data:
+
+networks:
+  event-pipeline:
+    driver: bridge

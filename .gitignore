@@ -1,0 +1,26 @@
+.env
+*.log
+*.out
+*.test
+coverage.txt
+coverage.html
+
+# Binaries
+/consumer
+/producer
+/cmd/consumer/consumer
+/cmd/producer/producer
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml

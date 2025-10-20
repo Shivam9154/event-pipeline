@@ -1,0 +1,44 @@
+### Health Check
+GET http://localhost:8080/health
+
+###
+
+### Get User with Last 5 Orders
+# Replace {userId} with actual user ID from events
+GET http://localhost:8080/users/YOUR_USER_ID_HERE
+
+###
+
+### Get Order with Payment Status
+# Replace {orderId} with actual order ID from events
+GET http://localhost:8080/orders/YOUR_ORDER_ID_HERE
+
+###
+
+### Prometheus Metrics
+GET http://localhost:8080/metrics
+
+###
+
+### Sample Test Scenario
+# 1. First, run the producer to create sample events
+# 2. Check metrics to ensure events are being processed
+GET http://localhost:8080/metrics
+
+###
+
+# 3. Get a user (use user ID from producer output)
+GET http://localhost:8080/users/550e8400-e29b-41d4-a716-446655440000
+
+###
+
+# 4. Get an order (use order ID from producer output)
+GET http://localhost:8080/orders/650e8400-e29b-41d4-a716-446655440000
+
+###
+
+### Check DLQ Count in Redis
+# Using redis-cli:
+# docker exec -it redis redis-cli
+# LLEN dlq:events
+# LRANGE dlq:events 0 -1
