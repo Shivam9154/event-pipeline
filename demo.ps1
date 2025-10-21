@@ -58,15 +58,52 @@ foreach ($service in $services) {
     }
 }
 
-# Check consumer service
-if (-not (Test-ServiceHealth)) {
-    Write-Host "[-] Consumer/API service is NOT running" -ForegroundColor Red
-    Write-Host "    Please start: go run cmd/consumer/main.go" -ForegroundColor Yellow
-    exit 1
-}
-
-if (Test-ServiceHealth) {
-    Write-Host "[+] Consumer/API service is running" -ForegroundColor Green
+# Check if consumer is already running, if not start it
+$consumerRunning = Test-ServiceHealth
+if (-not $consumerRunning) {
+    Write-Host "[*] Starting Consumer/API service..." -ForegroundColor Yellow
+    
+    # Clean up any existing consumer job
+    $existingJob = Get-Job -Name "Consumer" -ErrorAction SilentlyContinue
+    if ($existingJob) {
+        Stop-Job -Name "Consumer" -ErrorAction SilentlyContinue
+        Remove-Job -Name "Consumer" -ErrorAction SilentlyContinue
+    }
+    
+    # Start consumer in background
+    $consumerJob = Start-Job -Name "Consumer" -ScriptBlock {
+        Set-Location $using:PWD
+        $env:MSSQL_PASSWORD = 'YourStrong@Passw0rd'
+        $env:KAFKA_BROKERS = 'localhost:9092'
+        $env:MSSQL_SERVER = 'localhost'
+        $env:REDIS_HOST = 'localhost'
+        go run ./cmd/consumer
+    }
+    
+    Write-Host "[*] Waiting for Consumer/API to start..." -ForegroundColor Yellow
+    $maxAttempts = 15
+    $attempt = 0
+    $started = $false
+    
+    while ($attempt -lt $maxAttempts) {
+        Start-Sleep -Seconds 2
+        if (Test-ServiceHealth) {
+            $started = $true
+            break
+        }
+        $attempt++
+        Write-Host "    Attempt $attempt/$maxAttempts..." -ForegroundColor Gray
+    }
+    
+    if ($started) {
+        Write-Host "[+] Consumer/API service started successfully" -ForegroundColor Green
+    } else {
+        Write-Host "[-] Failed to start Consumer/API service" -ForegroundColor Red
+        Write-Host "    Check logs with: Receive-Job -Name Consumer" -ForegroundColor Yellow
+        exit 1
+    }
+} else {
+    Write-Host "[+] Consumer/API service is already running" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -330,3 +367,25 @@ Write-Host ""
 if (Test-Path "demo-data.json") { 
     Remove-Item "demo-data.json" -Force 
 }
+
+# Ask if user wants to stop the consumer
+Write-Host ""
+$consumerJob = Get-Job -Name "Consumer" -ErrorAction SilentlyContinue
+if ($consumerJob) {
+    Write-Host "[?] Consumer/API is still running in the background." -ForegroundColor Cyan
+    Write-Host "    To stop it: Stop-Job -Name Consumer; Remove-Job -Name Consumer" -ForegroundColor Gray
+    Write-Host "    To keep it running: Leave it (you can continue testing the API)" -ForegroundColor Gray
+    Write-Host ""
+    
+    $response = Read-Host "Stop the consumer now? (y/N)"
+    if ($response -eq 'y' -or $response -eq 'Y') {
+        Write-Host "[*] Stopping consumer..." -ForegroundColor Yellow
+        Stop-Job -Name "Consumer" -ErrorAction SilentlyContinue
+        Remove-Job -Name "Consumer" -ErrorAction SilentlyContinue
+        Write-Host "[+] Consumer stopped" -ForegroundColor Green
+    } else {
+        Write-Host "[*] Consumer is still running on http://localhost:8080" -ForegroundColor Green
+        Write-Host "    Stop it later with: Stop-Job -Name Consumer; Remove-Job -Name Consumer" -ForegroundColor Gray
+    }
+}
+Write-Host ""

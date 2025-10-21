@@ -8,6 +8,8 @@ coverage.html
 # Binaries
 /consumer
 /producer
+*.exe
+/bin/
 /cmd/consumer/consumer
 /cmd/producer/producer
 
