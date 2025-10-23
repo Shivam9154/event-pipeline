@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"event-pipeline/internal/config"
 	"event-pipeline/internal/database"
 	"event-pipeline/internal/logger"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server represents the API server
@@ -37,11 +39,12 @@ func New(cfg *config.APIConfig, db *database.DB) *Server {
 func (s *Server) setupRoutes() {
 	// Health check
 	s.router.HandleFunc("/health", s.healthCheck).Methods("GET")
-	
+
 	// API routes
+	s.router.HandleFunc("/users/recent", s.getRecentUsers).Methods("GET")
 	s.router.HandleFunc("/users/{id}", s.getUser).Methods("GET")
 	s.router.HandleFunc("/orders/{id}", s.getOrder).Methods("GET")
-	
+
 	// Metrics endpoint
 	s.router.Handle("/metrics", promhttp.Handler())
 }
@@ -114,4 +117,29 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(order)
+}
+
+// getRecentUsers handles GET /users/recent?limit=N
+func (s *Server) getRecentUsers(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Parse optional limit parameter
+	limit := 5
+	if limStr := r.URL.Query().Get("limit"); limStr != "" {
+		if v, err := strconv.Atoi(limStr); err == nil {
+			limit = v
+		}
+	}
+
+	users, err := s.db.GetRecentUsers(ctx, limit)
+	if err != nil {
+		logger.Log.Errorf("Failed to list recent users: %v", err)
+		http.Error(w, "failed to list users", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(users)
 }

@@ -43,8 +43,9 @@ func main() {
 				EventType: models.UserCreatedEvent,
 				Timestamp: time.Now(),
 			},
-			UserID:    userId,
-			Email:     "duplicate.test@example.com",
+			UserID: userId,
+			// Use a unique email derived from the userId to avoid UNIQUE KEY violations across runs
+			Email:     fmt.Sprintf("dup+%s@example.com", userId),
 			FirstName: "Duplicate",
 			LastName:  "Test",
 			CreatedAt: time.Now(),

@@ -128,10 +128,13 @@ Write-Host "  3. Payment is processed successfully" -ForegroundColor White
 Write-Host "  4. Inventory is adjusted for shipped items" -ForegroundColor White
 Write-Host ""
 
-# Generate consistent IDs for the journey
+# Generate IDs for the journey
 $aliceUserId = [guid]::NewGuid().ToString()
 $orderId = [guid]::NewGuid().ToString()
 $paymentId = [guid]::NewGuid().ToString()
+
+# Use a unique email each run to avoid UNIQUE KEY violations on email
+$aliceEmail = "alice.johnson+$($aliceUserId.Substring(0,8))@example.com"
 
 Write-Host "[*] Publishing events..." -ForegroundColor Yellow
 
@@ -141,7 +144,7 @@ $jsonContent = @"
   "userId": "$aliceUserId",
   "orderId": "$orderId",
   "paymentId": "$paymentId",
-  "userEmail": "alice.johnson@example.com",
+    "userEmail": "$aliceEmail",
   "amount": 1299.99
 }
 "@

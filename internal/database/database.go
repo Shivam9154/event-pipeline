@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/denisenkom/go-mssqldb"
-	"github.com/sirupsen/logrus"
 	"event-pipeline/internal/config"
 	"event-pipeline/internal/logger"
 	"event-pipeline/internal/metrics"
 	"event-pipeline/internal/models"
+
+	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/sirupsen/logrus"
 )
 
 // DB wraps the SQL database connection
@@ -22,7 +23,7 @@ type DB struct {
 // New creates a new database connection
 func New(cfg *config.MSSQLConfig) (*DB, error) {
 	connString := cfg.GetConnectionString()
-	
+
 	conn, err := sql.Open("sqlserver", connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -31,7 +32,7 @@ func New(cfg *config.MSSQLConfig) (*DB, error) {
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := conn.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -42,7 +43,7 @@ func New(cfg *config.MSSQLConfig) (*DB, error) {
 	conn.SetConnMaxLifetime(5 * time.Minute)
 
 	logger.Log.Info("Successfully connected to MS SQL database")
-	
+
 	return &DB{conn: conn}, nil
 }
 
@@ -383,6 +384,51 @@ type UserWithOrders struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	Orders    []Order   `json:"orders"`
+}
+
+// UserSummary is a lightweight view for listing users
+type UserSummary struct {
+	UserID    string    `json:"userId"`
+	Email     string    `json:"email"`
+	FirstName string    `json:"firstName"`
+	LastName  string    `json:"lastName"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// GetRecentUsers returns the latest N users by created_at desc
+func (db *DB) GetRecentUsers(ctx context.Context, limit int) ([]UserSummary, error) {
+	start := time.Now()
+	defer func() {
+		metrics.DBLatency.WithLabelValues("get_recent_users").Observe(time.Since(start).Seconds())
+	}()
+
+	if limit <= 0 || limit > 100 {
+		limit = 5
+	}
+
+	query := `
+		SELECT TOP (@p1) user_id, email, first_name, last_name, created_at, updated_at
+		FROM users
+		ORDER BY created_at DESC
+	`
+
+	rows, err := db.conn.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []UserSummary
+	for rows.Next() {
+		var u UserSummary
+		if err := rows.Scan(&u.UserID, &u.Email, &u.FirstName, &u.LastName, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+
+	return users, nil
 }
 
 type Order struct {
